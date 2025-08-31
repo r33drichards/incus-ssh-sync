@@ -45,6 +45,7 @@ func init() {
 	// Add commands
 	rootCmd.AddCommand(syncCmd)
 	rootCmd.AddCommand(initCmd)
+	rootCmd.AddCommand(daemonCmd)
 }
 
 // initConfig reads in config file and ENV variables if set
