@@ -265,8 +265,24 @@ func (c *Client) getInstanceState(name string) (*InstanceState, error) {
 }
 
 func (c *Client) extractIPAddress(state *InstanceState) string {
-	// Look for IPv4 addresses that are not localhost
-	for _, netInterface := range state.Network {
+	// First priority: Look for eth0 interface with global scope
+	if ethInterface, exists := state.Network["eth0"]; exists {
+		for _, addr := range ethInterface.Addresses {
+			if addr.Family == "inet" && addr.Scope == "global" && addr.Address != "127.0.0.1" {
+				return addr.Address
+			}
+		}
+	}
+	
+	// Second priority: Look for any non-Docker interface with global scope
+	for interfaceName, netInterface := range state.Network {
+		// Skip Docker-related interfaces
+		if strings.HasPrefix(interfaceName, "docker") || 
+		   strings.HasPrefix(interfaceName, "br-") ||
+		   interfaceName == "lo" {
+			continue
+		}
+		
 		for _, addr := range netInterface.Addresses {
 			if addr.Family == "inet" && addr.Scope == "global" && addr.Address != "127.0.0.1" {
 				return addr.Address
@@ -274,8 +290,15 @@ func (c *Client) extractIPAddress(state *InstanceState) string {
 		}
 	}
 	
-	// Fallback to any IPv4 address
-	for _, netInterface := range state.Network {
+	// Fallback: Any IPv4 address, excluding Docker interfaces
+	for interfaceName, netInterface := range state.Network {
+		// Skip Docker-related interfaces in fallback too
+		if strings.HasPrefix(interfaceName, "docker") || 
+		   strings.HasPrefix(interfaceName, "br-") ||
+		   interfaceName == "lo" {
+			continue
+		}
+		
 		for _, addr := range netInterface.Addresses {
 			if addr.Family == "inet" && addr.Address != "127.0.0.1" {
 				return addr.Address
