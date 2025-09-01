@@ -82,10 +82,10 @@ func runSync() error {
 		fmt.Printf("Found %d containers\n", len(containers))
 	}
 
-	// Read SSH config
-	config, err := ssh.ReadConfig(sshConfigPath)
-	if err != nil {
-		return fmt.Errorf("failed to read SSH config: %w", err)
+	// Build a fresh SSH config to overwrite the target file
+	config := &ssh.Config{
+		Hosts: make(map[string]*ssh.HostEntry),
+		Lines: []string{},
 	}
 
 	// Track changes
