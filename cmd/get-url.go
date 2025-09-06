@@ -163,15 +163,20 @@ func runGetURL(cmd *cobra.Command, args []string) error {
 
 func substituteUrlWithIncusRemoteUrl(url string) (*string, error) {
 	// remove  http://127.0.0.1:* from the url
-	url = strings.Split(url, "http://127.0.0.1:")[1]
-	// remove numbers after : and the :
-	url = strings.Split(url, ":")[0]
+	parts := strings.Split(url, "http://127.0.0.1:")[1]
+	// extract path after port number
+	pathStart := strings.Index(parts, "/")
+	if pathStart == -1 {
+		return nil, fmt.Errorf("invalid URL format: no path found")
+	}
+	path := parts[pathStart:]
+	
 	host := viper.GetString("incus_remote_url")
 	if host == "" {
 		return nil, fmt.Errorf("incus_remote_url is not set")
 	}
 	// add https://incus-1.camel-kitchen.ts.net/ui?auth_token=259f7921-0de5-44ee-b196-57046e5912cd
-	url = host + "/" + url
+	url = host + path
 	return &url, nil
 }
 
