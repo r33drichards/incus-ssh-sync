@@ -12,6 +12,7 @@ import (
 var (
 	cfgFile string
 	verbose bool
+	debug   bool
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -41,11 +42,13 @@ func init() {
 	// Global flags
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.incus-ssh-sync.yaml)")
 	rootCmd.PersistentFlags().BoolVar(&verbose, "verbose", false, "enable verbose output")
+	rootCmd.PersistentFlags().BoolVar(&debug, "debug", false, "enable debug output")
 
 	// Add commands
 	rootCmd.AddCommand(syncCmd)
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(daemonCmd)
+	rootCmd.AddCommand(connectCmd)
 }
 
 // initConfig reads in config file and ENV variables if set
@@ -93,4 +96,5 @@ func setDefaultConfig() {
 	viper.SetDefault("auth_token", "")
 	viper.SetDefault("backup", true)
 	viper.SetDefault("remove_missing", false)
+	viper.SetDefault("skip_host_key_check", true)
 }

@@ -5,22 +5,31 @@
     nixpkgs.url = "github:nixos/nixpkgs?ref=nixos-unstable";
   };
 
-  outputs = { self, nixpkgs }: {
-
-    packages.x86_64-linux.hello = nixpkgs.legacyPackages.x86_64-linux.hello;
-
-    packages.x86_64-linux.default = self.packages.x86_64-linux.hello;
-
-    devShells.x86_64-linux.default = let
-      pkgs = nixpkgs.legacyPackages.x86_64-linux;
-    in pkgs.mkShell {
-      packages = [
-        pkgs.nodejs_22
-        pkgs.go
-      ];
+  outputs = { self, nixpkgs }:
+    let
+      systems = [ "x86_64-linux" "aarch64-darwin" ];
+      forAllSystems = nixpkgs.lib.genAttrs systems;
+      perSystem = forAllSystems (system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+          shellPackages = [
+            pkgs.nodejs_22
+            pkgs.go
+          ];
+        in {
+          packages = {
+            hello = pkgs.hello;
+            default = pkgs.hello;
+          };
+          devShells = {
+            default = pkgs.mkShell {
+              packages = shellPackages;
+            };
+          };
+        }
+      );
+    in {
+      packages = nixpkgs.lib.mapAttrs (_: v: v.packages) perSystem;
+      devShells = nixpkgs.lib.mapAttrs (_: v: v.devShells) perSystem;
     };
-
-    
-
-  };
 }

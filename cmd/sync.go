@@ -84,8 +84,9 @@ func runSync() error {
 
 	// Build a fresh SSH config to overwrite the target file
 	config := &ssh.Config{
-		Hosts: make(map[string]*ssh.HostEntry),
-		Lines: []string{},
+		Hosts:                  make(map[string]*ssh.HostEntry),
+		Lines:                  []string{},
+		DisableHostKeyChecking: viper.GetBool("skip_host_key_check"),
 	}
 
 	// Track changes

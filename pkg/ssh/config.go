@@ -8,8 +8,9 @@ import (
 )
 
 type Config struct {
-	Hosts map[string]*HostEntry
-	Lines []string
+	Hosts                  map[string]*HostEntry
+	Lines                  []string
+	DisableHostKeyChecking bool
 }
 
 type HostEntry struct {
@@ -24,7 +25,7 @@ func ReadConfig(path string) (*Config, error) {
 		Hosts: make(map[string]*HostEntry),
 		Lines: []string{},
 	}
-	
+
 	file, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -33,27 +34,27 @@ func ReadConfig(path string) (*Config, error) {
 		return nil, fmt.Errorf("failed to open SSH config file: %w", err)
 	}
 	defer file.Close()
-	
+
 	scanner := bufio.NewScanner(file)
 	var currentHost *HostEntry
-	
+
 	for scanner.Scan() {
 		line := scanner.Text()
 		config.Lines = append(config.Lines, line)
-		
+
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue
 		}
-		
+
 		parts := strings.Fields(trimmed)
 		if len(parts) < 2 {
 			continue
 		}
-		
+
 		key := strings.ToLower(parts[0])
 		value := strings.Join(parts[1:], " ")
-		
+
 		switch key {
 		case "host":
 			if currentHost != nil {
@@ -74,15 +75,15 @@ func ReadConfig(path string) (*Config, error) {
 			}
 		}
 	}
-	
+
 	if currentHost != nil {
 		config.Hosts[currentHost.Name] = currentHost
 	}
-	
+
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("error reading SSH config: %w", err)
 	}
-	
+
 	return config, nil
 }
 
@@ -92,7 +93,7 @@ func WriteConfig(config *Config, path string) error {
 		return fmt.Errorf("failed to create SSH config file: %w", err)
 	}
 	defer file.Close()
-	
+
 	for _, host := range config.Hosts {
 		fmt.Fprintf(file, "\nHost %s\n", host.Name)
 		if host.HostName != "" {
@@ -104,8 +105,12 @@ func WriteConfig(config *Config, path string) error {
 		if host.ProxyJump != "" {
 			fmt.Fprintf(file, "    ProxyJump %s\n", host.ProxyJump)
 		}
+		if config.DisableHostKeyChecking {
+			fmt.Fprintf(file, "    StrictHostKeyChecking no\n")
+			fmt.Fprintf(file, "    UserKnownHostsFile /dev/null\n")
+		}
 	}
-	
+
 	return nil
 }
 
