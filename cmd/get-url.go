@@ -135,7 +135,7 @@ func runGetURL(cmd *cobra.Command, args []string) error {
 	if debug {
 		fmt.Fprintln(os.Stderr, "[debug] running remote probe command")
 	}
-	out, err := session.CombinedOutput("sudo journalctl -xeu incus-webui.service")
+	out, err := session.CombinedOutput("sudo journalctl -xeu incus-webui.service -r")
 	if err != nil {
 		return fmt.Errorf("remote command failed: %w", err)
 	}
@@ -170,7 +170,7 @@ func substituteUrlWithIncusRemoteUrl(url string) (*string, error) {
 		return nil, fmt.Errorf("invalid URL format: no path found")
 	}
 	path := parts[pathStart:]
-	
+
 	host := viper.GetString("incus_remote_url")
 	if host == "" {
 		return nil, fmt.Errorf("incus_remote_url is not set")
