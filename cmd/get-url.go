@@ -175,7 +175,6 @@ func substituteUrlWithIncusRemoteUrl(url string) (*string, error) {
 	if host == "" {
 		return nil, fmt.Errorf("incus_remote_url is not set")
 	}
-	// add https://incus-1.camel-kitchen.ts.net/ui?auth_token=259f7921-0de5-44ee-b196-57046e5912cd
 	url = host + path
 	return &url, nil
 }
