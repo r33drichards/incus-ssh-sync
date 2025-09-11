@@ -56,135 +56,140 @@ func runSync() error {
 		fmt.Println("Starting Incus SSH config sync...")
 	}
 
-	// Get configuration values
-	sshConfigPath := viper.GetString("ssh_config")
-	proxyJump := viper.GetString("proxy_jump")
-	defaultUser := viper.GetString("default_user")
-	incusSocket := viper.GetString("incus_socket")
-	incusRemote := viper.GetString("incus_remote")
-	incusRemoteURL := viper.GetString("incus_remote_url")
-	authToken := viper.GetString("auth_token")
-	removeMissing := viper.GetBool("remove_missing")
-
-	// Connect to Incus
-	client, err := incus.NewClientWithAuth(incusSocket, incusRemote, incusRemoteURL, authToken)
+	servers, err := getServerConfigs()
 	if err != nil {
-		return fmt.Errorf("failed to connect to Incus server: %w", err)
+		return err
 	}
 
-	// Get container information
-	containers, err := client.ListContainers(nameFilter, statusFilter)
-	if err != nil {
-		return fmt.Errorf("failed to list containers: %w", err)
-	}
+	var totalAdded, totalUpdated, totalRemoved int
 
-	if verbose {
-		fmt.Printf("Found %d containers\n", len(containers))
-	}
-
-	// Build a fresh SSH config to overwrite the target file
-	config := &ssh.Config{
-		Hosts:                  make(map[string]*ssh.HostEntry),
-		Lines:                  []string{},
-		DisableHostKeyChecking: viper.GetBool("skip_host_key_check"),
-	}
-
-	// Track changes
-	var added, updated, removed int
-
-	// Process containers
-	existingHosts := make(map[string]bool)
-	for _, container := range containers {
-		// Skip containers without IP
-		if container.IPAddress == "" {
-			if verbose {
-				fmt.Printf("Skipping container %s: no IP address\n", container.Name)
-			}
-			continue
+	for _, server := range servers {
+		if verbose {
+			fmt.Printf("\n[server=%s] syncing to %s\n", server.ProxyJump, server.SSHConfig)
 		}
 
-		// Determine username
-		username := defaultUser
-		if username == "" {
-			username = os.Getenv("USER")
+		client, err := incus.NewClientWithAuth(server.IncusSocket, server.IncusRemote, server.IncusRemoteURL, server.AuthToken)
+		if err != nil {
+			return fmt.Errorf("[%s] failed to connect to Incus server: %w", server.ProxyJump, err)
 		}
 
-		// Check if entry exists
-		existingHosts[container.Name] = true
-		hostExists := ssh.HostExists(config, container.Name)
-
-		// Create or update entry
-		entry := ssh.HostEntry{
-			Name:      container.Name,
-			HostName:  container.IPAddress,
-			ProxyJump: proxyJump,
-			User:      username,
+		containers, err := client.ListContainers(nameFilter, statusFilter)
+		if err != nil {
+			return fmt.Errorf("[%s] failed to list containers: %w", server.ProxyJump, err)
 		}
 
-		if !hostExists {
-			if dryRun {
-				fmt.Printf("[DRY RUN] Would add entry for %s (IP: %s)\n", container.Name, container.IPAddress)
-			} else {
-				if err := ssh.AddHost(config, entry); err != nil {
-					return fmt.Errorf("failed to add host %s: %w", container.Name, err)
-				}
+		if verbose {
+			fmt.Printf("[%s] found %d containers\n", server.ProxyJump, len(containers))
+		}
+
+		config := &ssh.Config{
+			Hosts:                  make(map[string]*ssh.HostEntry),
+			Lines:                  []string{},
+			DisableHostKeyChecking: server.SkipHostKeyCheck,
+		}
+
+		var added, updated, removed int
+		existingHosts := make(map[string]bool)
+		for _, container := range containers {
+			if container.IPAddress == "" {
 				if verbose {
-					fmt.Printf("Added entry for %s (IP: %s)\n", container.Name, container.IPAddress)
+					fmt.Printf("[%s] skipping %s: no IP address\n", server.ProxyJump, container.Name)
 				}
+				continue
 			}
-			added++
-		} else {
-			currentIP := ssh.GetHostIP(config, container.Name)
-			if currentIP != container.IPAddress || forceOverwrite {
+
+			username := server.DefaultUser
+			if username == "" {
+				username = os.Getenv("USER")
+			}
+
+			existingHosts[container.Name] = true
+			hostExists := ssh.HostExists(config, container.Name)
+
+			entry := ssh.HostEntry{
+				Name:      container.Name,
+				HostName:  container.IPAddress,
+				ProxyJump: server.ProxyJump,
+				User:      username,
+			}
+
+			if !hostExists {
 				if dryRun {
-					fmt.Printf("[DRY RUN] Would update entry for %s (IP: %s -> %s)\n", container.Name, currentIP, container.IPAddress)
+					fmt.Printf("[%s][DRY RUN] Would add %s (IP: %s)\n", server.ProxyJump, container.Name, container.IPAddress)
 				} else {
-					if err := ssh.UpdateHost(config, entry); err != nil {
-						return fmt.Errorf("failed to update host %s: %w", container.Name, err)
+					if err := ssh.AddHost(config, entry); err != nil {
+						return fmt.Errorf("[%s] failed to add host %s: %w", server.ProxyJump, container.Name, err)
 					}
 					if verbose {
-						fmt.Printf("Updated entry for %s (IP: %s -> %s)\n", container.Name, currentIP, container.IPAddress)
+						fmt.Printf("[%s] added %s (IP: %s)\n", server.ProxyJump, container.Name, container.IPAddress)
 					}
 				}
-				updated++
-			} else if verbose {
-				fmt.Printf("Entry for %s already up to date (IP: %s)\n", container.Name, container.IPAddress)
-			}
-		}
-	}
-
-	// Remove entries for non-existent containers if requested
-	if removeMissing {
-		hosts := ssh.GetAllHosts(config)
-		for _, host := range hosts {
-			if !existingHosts[host] {
-				if dryRun {
-					fmt.Printf("[DRY RUN] Would remove entry for %s (container no longer exists)\n", host)
-				} else {
-					if err := ssh.RemoveHost(config, host); err != nil {
-						return fmt.Errorf("failed to remove host %s: %w", host, err)
+				added++
+			} else {
+				currentIP := ssh.GetHostIP(config, container.Name)
+				if currentIP != container.IPAddress || forceOverwrite {
+					if dryRun {
+						fmt.Printf("[%s][DRY RUN] Would update %s (IP: %s -> %s)\n", server.ProxyJump, container.Name, currentIP, container.IPAddress)
+					} else {
+						if err := ssh.UpdateHost(config, entry); err != nil {
+							return fmt.Errorf("[%s] failed to update host %s: %w", server.ProxyJump, container.Name, err)
+						}
+						if verbose {
+							fmt.Printf("[%s] updated %s (IP: %s -> %s)\n", server.ProxyJump, container.Name, currentIP, container.IPAddress)
+						}
 					}
-					if verbose {
-						fmt.Printf("Removed entry for %s (container no longer exists)\n", host)
-					}
+					updated++
+				} else if verbose {
+					fmt.Printf("[%s] %s already up to date (IP: %s)\n", server.ProxyJump, container.Name, container.IPAddress)
 				}
-				removed++
 			}
 		}
-	}
 
-	// Write updated config if not in dry run mode
-	if !dryRun {
-		if err := ssh.WriteConfig(config, sshConfigPath); err != nil {
-			return fmt.Errorf("failed to write SSH config: %w", err)
+		if server.RemoveMissing {
+			hosts := ssh.GetAllHosts(config)
+			for _, host := range hosts {
+				if !existingHosts[host] {
+					if dryRun {
+						fmt.Printf("[%s][DRY RUN] Would remove %s (container no longer exists)\n", server.ProxyJump, host)
+					} else {
+						if err := ssh.RemoveHost(config, host); err != nil {
+							return fmt.Errorf("[%s] failed to remove host %s: %w", server.ProxyJump, host, err)
+						}
+						if verbose {
+							fmt.Printf("[%s] removed %s (container no longer exists)\n", server.ProxyJump, host)
+						}
+					}
+					removed++
+				}
+			}
 		}
-		fmt.Printf("SSH config updated successfully at %s\n", sshConfigPath)
+
+		if !dryRun {
+			if err := ssh.WriteConfig(config, server.SSHConfig); err != nil {
+				return fmt.Errorf("[%s] failed to write SSH config: %w", server.ProxyJump, err)
+			}
+			fmt.Printf("[%s] SSH config updated at %s\n", server.ProxyJump, server.SSHConfig)
+		}
+
+		if verbose || dryRun {
+			fmt.Printf("[%s] Summary: %d added, %d updated", server.ProxyJump, added, updated)
+			if server.RemoveMissing {
+				fmt.Printf(", %d removed", removed)
+			}
+			if dryRun {
+				fmt.Printf(" (dry run)")
+			}
+			fmt.Println()
+		}
+
+		totalAdded += added
+		totalUpdated += updated
+		totalRemoved += removed
 	}
 
-	// Summary
-	fmt.Printf("Summary: %d added, %d updated", added, updated)
-	if removeMissing {
-		fmt.Printf(", %d removed", removed)
+	fmt.Printf("Total: %d added, %d updated", totalAdded, totalUpdated)
+	if totalRemoved > 0 {
+		fmt.Printf(", %d removed", totalRemoved)
 	}
 	if dryRun {
 		fmt.Printf(" (dry run)")

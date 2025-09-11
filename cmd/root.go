@@ -98,3 +98,100 @@ func setDefaultConfig() {
 	viper.SetDefault("remove_missing", false)
 	viper.SetDefault("skip_host_key_check", true)
 }
+
+// ServerConfig represents one Incus/SSH sync target.
+type ServerConfig struct {
+	SSHConfig        string `mapstructure:"ssh_config"`
+	ProxyJump        string `mapstructure:"proxy_jump"`
+	DefaultUser      string `mapstructure:"default_user"`
+	IncusSocket      string `mapstructure:"incus_socket"`
+	IncusRemote      string `mapstructure:"incus_remote"`
+	IncusRemoteURL   string `mapstructure:"incus_remote_url"`
+	AuthToken        string `mapstructure:"auth_token"`
+	Backup           bool   `mapstructure:"backup"`
+	RemoveMissing    bool   `mapstructure:"remove_missing"`
+	SkipHostKeyCheck bool   `mapstructure:"skip_host_key_check"`
+}
+
+// getServerConfigs returns all configured servers. If `servers` is not set,
+// it falls back to a single server built from top-level keys for backward compatibility.
+func getServerConfigs() ([]ServerConfig, error) {
+	var servers []ServerConfig
+
+	if viper.IsSet("servers") {
+		if err := viper.UnmarshalKey("servers", &servers); err != nil {
+			return nil, fmt.Errorf("failed to parse servers configuration: %w", err)
+		}
+	}
+
+	// Backward-compatible single-server configuration
+	if len(servers) == 0 {
+		servers = []ServerConfig{{
+			SSHConfig:        viper.GetString("ssh_config"),
+			ProxyJump:        viper.GetString("proxy_jump"),
+			DefaultUser:      viper.GetString("default_user"),
+			IncusSocket:      viper.GetString("incus_socket"),
+			IncusRemote:      viper.GetString("incus_remote"),
+			IncusRemoteURL:   viper.GetString("incus_remote_url"),
+			AuthToken:        viper.GetString("auth_token"),
+			Backup:           viper.GetBool("backup"),
+			RemoveMissing:    viper.GetBool("remove_missing"),
+			SkipHostKeyCheck: viper.GetBool("skip_host_key_check"),
+		}}
+	} else {
+		// Ensure defaults are applied for any missing fields on each server
+		for i := range servers {
+			if servers[i].SSHConfig == "" {
+				if home, err := os.UserHomeDir(); err == nil {
+					servers[i].SSHConfig = filepath.Join(home, ".ssh", "config")
+				}
+			}
+			if servers[i].ProxyJump == "" {
+				servers[i].ProxyJump = viper.GetString("proxy_jump")
+			}
+			if servers[i].IncusSocket == "" {
+				servers[i].IncusSocket = viper.GetString("incus_socket")
+			}
+			if servers[i].IncusRemote == "" {
+				servers[i].IncusRemote = viper.GetString("incus_remote")
+			}
+			// backup default is true; only override when explicitly set at top-level
+			if !viper.IsSet("servers.") && viper.IsSet("backup") && !servers[i].Backup {
+				servers[i].Backup = viper.GetBool("backup")
+			}
+			if !viper.IsSet("servers.") && viper.IsSet("remove_missing") && !servers[i].RemoveMissing {
+				servers[i].RemoveMissing = viper.GetBool("remove_missing")
+			}
+			if !viper.IsSet("servers.") && viper.IsSet("skip_host_key_check") && !servers[i].SkipHostKeyCheck {
+				servers[i].SkipHostKeyCheck = viper.GetBool("skip_host_key_check")
+			}
+		}
+	}
+
+	return servers, nil
+}
+
+// findServersByProxyJumps filters by proxy_jump names. If names is empty, all servers are returned.
+func findServersByProxyJumps(names []string) ([]ServerConfig, error) {
+	servers, err := getServerConfigs()
+	if err != nil {
+		return nil, err
+	}
+	if len(names) == 0 {
+		return servers, nil
+	}
+	nameSet := map[string]struct{}{}
+	for _, n := range names {
+		nameSet[n] = struct{}{}
+	}
+	filtered := make([]ServerConfig, 0, len(names))
+	for _, s := range servers {
+		if _, ok := nameSet[s.ProxyJump]; ok {
+			filtered = append(filtered, s)
+		}
+	}
+	if len(filtered) == 0 {
+		return nil, fmt.Errorf("no servers matched by proxy_jump: %v", names)
+	}
+	return filtered, nil
+}
