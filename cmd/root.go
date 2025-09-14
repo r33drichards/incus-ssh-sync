@@ -49,6 +49,7 @@ func init() {
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(daemonCmd)
 	rootCmd.AddCommand(connectCmd)
+	rootCmd.AddCommand(installCmd)
 }
 
 // initConfig reads in config file and ENV variables if set
