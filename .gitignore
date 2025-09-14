@@ -1,3 +1,4 @@
 .direnv/
 incus-ssh-sync
 result*
+.DS_Store

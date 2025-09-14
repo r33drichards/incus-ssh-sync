@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 	"golang.org/x/crypto/ssh/knownhosts"
@@ -28,6 +27,19 @@ var connectCmd = &cobra.Command{
 func init() {
 	// Add any flags specific to get-url command here
 	connectCmd.Flags().String("proxy-jump", "", "ProxyJump to include in the URL output (deprecated, use arg)")
+}
+
+func execWithSession(client *ssh.Client, command string, debug bool) ([]byte, error) {
+	session, err := client.NewSession()
+	if err != nil {
+		return nil, err
+	}
+	defer session.Close()
+	if debug {
+		session.Stdout = os.Stdout
+		session.Stderr = os.Stderr
+	}
+	return session.CombinedOutput(command)
 }
 
 func runGetURL(cmd *cobra.Command, args []string) error {
@@ -125,21 +137,17 @@ func runGetURL(cmd *cobra.Command, args []string) error {
 			fmt.Fprintln(os.Stderr, "[debug] ssh connection established")
 		}
 
-		session, err := client.NewSession()
+		_, err = execWithSession(client, "sudo systemctl restart incus-webui.service", debug)
 		if err != nil {
-			return fmt.Errorf("[%s] failed to create ssh session: %w", server.ProxyJump, err)
-		}
-		defer session.Close()
-
-		if debug {
-			session.Stdout = os.Stdout
-			session.Stderr = os.Stderr
+			return fmt.Errorf("[%s] remote command failed: %w", server.ProxyJump, err)
 		}
 
-		if debug {
-			fmt.Fprintln(os.Stderr, "[debug] running remote probe command")
+		_, err = execWithSession(client, "sudo systemctl restart tailscale-serve.service", debug)
+		if err != nil {
+			return fmt.Errorf("[%s] remote command failed: %w", server.ProxyJump, err)
 		}
-		out, err := session.CombinedOutput("sudo journalctl -xeu incus-webui.service -r")
+
+		out, err := execWithSession(client, "sudo journalctl -xeu incus-webui.service -r", debug)
 		if err != nil {
 			return fmt.Errorf("[%s] remote command failed: %w", server.ProxyJump, err)
 		}
@@ -161,27 +169,6 @@ func runGetURL(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
-}
-
-// incoming url: http://127.0.0.1:38155/ui?auth_token=259f7921-0de5-44ee-b196-57046e5912cd
-// outgoing url: https://incus-1.camel-kitchen.ts.net/ui?auth_token=259f7921-0de5-44ee-b196-57046e5912cd
-
-func substituteUrlWithIncusRemoteUrl(url string) (*string, error) {
-	// remove  http://127.0.0.1:* from the url
-	parts := strings.Split(url, "http://127.0.0.1:")[1]
-	// extract path after port number
-	pathStart := strings.Index(parts, "/")
-	if pathStart == -1 {
-		return nil, fmt.Errorf("invalid URL format: no path found")
-	}
-	path := parts[pathStart:]
-
-	host := viper.GetString("incus_remote_url")
-	if host == "" {
-		return nil, fmt.Errorf("incus_remote_url is not set")
-	}
-	url = host + path
-	return &url, nil
 }
 
 func substituteUrlWithIncusRemoteUrlForServer(url string, server ServerConfig) (*string, error) {
