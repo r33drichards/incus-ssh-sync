@@ -55,6 +55,7 @@ func init() {
 	rootCmd.AddCommand(connectCmd)
 	rootCmd.AddCommand(installCmd)
 	rootCmd.AddCommand(restoreCmd)
+	rootCmd.AddCommand(restoreServerCmd)
 }
 
 // initConfig reads in config file and ENV variables if set
@@ -117,6 +118,7 @@ type ServerConfig struct {
 	Backup           bool   `mapstructure:"backup"`
 	RemoveMissing    bool   `mapstructure:"remove_missing"`
 	SkipHostKeyCheck bool   `mapstructure:"skip_host_key_check"`
+	RestoreSnapshot  string `mapstructure:"restore_snapshot"`
 }
 
 // getServerConfigs returns all configured servers. If `servers` is not set,
@@ -143,6 +145,7 @@ func getServerConfigs() ([]ServerConfig, error) {
 			Backup:           viper.GetBool("backup"),
 			RemoveMissing:    viper.GetBool("remove_missing"),
 			SkipHostKeyCheck: viper.GetBool("skip_host_key_check"),
+			RestoreSnapshot:  viper.GetString("restore_snapshot"),
 		}}
 	} else {
 		// Ensure defaults are applied for any missing fields on each server
@@ -170,6 +173,9 @@ func getServerConfigs() ([]ServerConfig, error) {
 			}
 			if !viper.IsSet("servers.") && viper.IsSet("skip_host_key_check") && !servers[i].SkipHostKeyCheck {
 				servers[i].SkipHostKeyCheck = viper.GetBool("skip_host_key_check")
+			}
+			if servers[i].RestoreSnapshot == "" {
+				servers[i].RestoreSnapshot = viper.GetString("restore_snapshot")
 			}
 		}
 	}
